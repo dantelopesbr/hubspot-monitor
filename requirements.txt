@@ -1,0 +1,8 @@
+hubspot-api-client==9.0.0
+gspread==6.0.0
+google-auth==2.27.0
+holidays>=0.34
+pytz==2024.1
+python-dotenv==1.0.1
+pytest==8.1.1
+pytest-mock==3.12.0
