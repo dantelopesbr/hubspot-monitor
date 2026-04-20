@@ -48,6 +48,8 @@ def write_snapshot(client: gspread.Client, records: list[dict]) -> None:
 def append_to_history(client: gspread.Client, records: list[dict]) -> None:
     """Append today's classified records to the 'historico' tab."""
     sheet = client.open_by_key(os.environ['GOOGLE_SHEETS_ID']).worksheet('historico')
+    if not sheet.get_all_values():
+        sheet.update('A1', [HISTORY_HEADERS])
     today = date.today().isoformat()
     rows = [_record_to_row({'snapshot_date': today, **r}, HISTORY_HEADERS) for r in records]
     if rows:
