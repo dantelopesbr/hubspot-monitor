@@ -1,15 +1,20 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from hubspot import HubSpot
 
 CONTACT_PROPERTIES = [
     'firstname', 'lastname', 'email', 'phone',
     'hubspot_owner_id',
+    'createdate',
     'notes_last_contacted',
     'hs_email_last_send_date',
     'hs_email_last_reply_date',
     'notes_next_activity_date',
+    'origem_do_lead',
 ]
+
+EXCLUDED_ORIGINS = {'fornecedor', 'transportadora'}
+ACTIVE_WINDOW_DAYS = 90
 
 
 def get_hubspot_client() -> HubSpot:
@@ -26,7 +31,6 @@ def parse_hubspot_timestamp(ts: str | None) -> datetime | None:
 
 
 def get_last_direction(contact_props: dict) -> str:
-    """Return 'INBOUND' if client replied more recently than salesperson sent, else 'OUTBOUND'."""
     send_date = parse_hubspot_timestamp(contact_props.get('hs_email_last_send_date'))
     reply_date = parse_hubspot_timestamp(contact_props.get('hs_email_last_reply_date'))
     if reply_date and send_date:
@@ -34,6 +38,22 @@ def get_last_direction(contact_props: dict) -> str:
     if reply_date:
         return 'INBOUND'
     return 'OUTBOUND'
+
+
+def is_active_contact(contact: dict, now: datetime) -> bool:
+    cutoff = now - timedelta(days=ACTIVE_WINDOW_DAYS)
+    created = parse_hubspot_timestamp(contact.get('createdate'))
+    last_contacted = parse_hubspot_timestamp(contact.get('notes_last_contacted'))
+    if created and created >= cutoff:
+        return True
+    if last_contacted and last_contacted >= cutoff:
+        return True
+    return False
+
+
+def is_excluded_origin(contact: dict) -> bool:
+    origin = (contact.get('origem_do_lead') or '').strip().lower()
+    return origin in EXCLUDED_ORIGINS
 
 
 def get_all_contacts(client: HubSpot) -> list[dict]:
@@ -65,12 +85,19 @@ def get_owner(client: HubSpot, owner_id: str) -> dict:
         return {'owner_name': 'Sem responsável', 'owner_email': ''}
 
 
-def build_contact_records(client: HubSpot) -> list[dict]:
+def build_contact_records(client: HubSpot, now: datetime | None = None) -> list[dict]:
+    if now is None:
+        now = datetime.now(timezone.utc)
     contacts = get_all_contacts(client)
     owners_cache: dict[str, dict] = {}
     records = []
 
     for contact in contacts:
+        if is_excluded_origin(contact):
+            continue
+        if not is_active_contact(contact, now):
+            continue
+
         owner_id = contact.get('hubspot_owner_id')
         if owner_id and owner_id not in owners_cache:
             owners_cache[owner_id] = get_owner(client, owner_id)
