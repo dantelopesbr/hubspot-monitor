@@ -1,5 +1,5 @@
 setuptools>=70.0.0
-hubspot-api-client==9.0.0
+hubspot-api-client>=10.0.0
 gspread==6.0.0
 google-auth==2.27.0
 holidays==0.94
