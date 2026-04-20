@@ -2,7 +2,7 @@ name: HubSpot Abandoned Leads Monitor
 
 on:
   schedule:
-    - cron: '0 11 * * 1-5'  # 8h Sao Paulo (UTC-3), weekdays only
+    - cron: '0 9 * * 1-5'  # 6h Sao Paulo (UTC-3), weekdays only
   workflow_dispatch:          # Allows manual trigger from the GitHub Actions UI
 
 jobs:
