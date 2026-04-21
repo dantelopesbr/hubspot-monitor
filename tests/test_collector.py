@@ -1,16 +1,16 @@
+# tests/test_collector.py
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 from src.collector import (
-    parse_hubspot_timestamp, get_last_direction, get_all_contacts,
-    get_owner, build_contact_records, is_active_contact, is_excluded_origin,
+    parse_hubspot_timestamp, is_open_deal, get_last_contact_at,
+    get_last_direction, get_all_deals, get_associated_contact_ids,
+    get_contact, get_owner, build_deal_records,
 )
-
-NOW = datetime(2026, 4, 20, 12, 0, 0, tzinfo=timezone.utc)
 
 
 def test_parse_iso_timestamp():
-    result = parse_hubspot_timestamp('2026-04-20T09:00:00Z')
-    assert result == datetime(2026, 4, 20, 9, 0, 0, tzinfo=timezone.utc)
+    result = parse_hubspot_timestamp('2026-04-21T09:00:00Z')
+    assert result == datetime(2026, 4, 21, 9, 0, 0, tzinfo=timezone.utc)
 
 
 def test_parse_none_returns_none():
@@ -21,132 +21,137 @@ def test_parse_empty_string_returns_none():
     assert parse_hubspot_timestamp('') is None
 
 
-def test_get_last_direction_outbound_when_send_is_newer():
-    props = {
-        'hs_email_last_send_date': '2026-04-20T10:00:00Z',
-        'hs_email_last_reply_date': '2026-04-19T10:00:00Z',
-    }
-    assert get_last_direction(props) == 'OUTBOUND'
+def test_is_open_deal_open_stage():
+    assert is_open_deal({'dealstage': 'appointmentscheduled'}) is True
+
+
+def test_is_open_deal_closedwon():
+    assert is_open_deal({'dealstage': 'closedwon'}) is False
+
+
+def test_is_open_deal_closedlost():
+    assert is_open_deal({'dealstage': 'closedlost'}) is False
+
+
+def test_get_last_contact_at_uses_most_recent():
+    deal = {'notes_last_contacted': '2026-04-10T00:00:00Z'}
+    contacts = [{'notes_last_contacted': '2026-04-20T00:00:00Z'}]
+    result = get_last_contact_at(deal, contacts)
+    assert result == datetime(2026, 4, 20, 0, 0, 0, tzinfo=timezone.utc)
+
+
+def test_get_last_contact_at_falls_back_to_deal():
+    deal = {'notes_last_contacted': '2026-04-20T00:00:00Z'}
+    contacts = [{'notes_last_contacted': None}]
+    result = get_last_contact_at(deal, contacts)
+    assert result == datetime(2026, 4, 20, 0, 0, 0, tzinfo=timezone.utc)
+
+
+def test_get_last_contact_at_all_none():
+    assert get_last_contact_at({'notes_last_contacted': None}, []) is None
 
 
 def test_get_last_direction_inbound_when_reply_is_newer():
-    props = {
+    contacts = [{
         'hs_email_last_send_date': '2026-04-19T10:00:00Z',
         'hs_email_last_reply_date': '2026-04-20T10:00:00Z',
-    }
-    assert get_last_direction(props) == 'INBOUND'
+    }]
+    assert get_last_direction(contacts) == 'INBOUND'
 
 
-def test_get_last_direction_defaults_outbound_with_no_dates():
-    assert get_last_direction({}) == 'OUTBOUND'
+def test_get_last_direction_outbound_when_send_is_newer():
+    contacts = [{
+        'hs_email_last_send_date': '2026-04-20T10:00:00Z',
+        'hs_email_last_reply_date': '2026-04-19T10:00:00Z',
+    }]
+    assert get_last_direction(contacts) == 'OUTBOUND'
 
 
-def test_is_active_contact_recent_createdate():
-    contact = {'createdate': '2026-04-01T00:00:00Z', 'notes_last_contacted': None}
-    assert is_active_contact(contact, NOW) is True
+def test_get_last_direction_defaults_outbound_no_contacts():
+    assert get_last_direction([]) == 'OUTBOUND'
 
 
-def test_is_active_contact_recent_last_contacted():
-    contact = {'createdate': '2025-01-01T00:00:00Z', 'notes_last_contacted': '2026-03-01T00:00:00Z'}
-    assert is_active_contact(contact, NOW) is True
-
-
-def test_is_active_contact_old_contact_excluded():
-    contact = {'createdate': '2024-01-01T00:00:00Z', 'notes_last_contacted': None}
-    assert is_active_contact(contact, NOW) is False
-
-
-def test_is_active_contact_no_dates_excluded():
-    contact = {'createdate': None, 'notes_last_contacted': None}
-    assert is_active_contact(contact, NOW) is False
-
-
-def test_is_excluded_origin_fornecedor():
-    assert is_excluded_origin({'origem_do_lead': 'Fornecedor'}) is True
-
-
-def test_is_excluded_origin_transportadora():
-    assert is_excluded_origin({'origem_do_lead': 'transportadora'}) is True
-
-
-def test_is_excluded_origin_regular_lead():
-    assert is_excluded_origin({'origem_do_lead': 'Indicação'}) is False
-
-
-def test_is_excluded_origin_none():
-    assert is_excluded_origin({'origem_do_lead': None}) is False
-
-
-def test_get_all_contacts_paginates_through_all_pages():
+def test_get_associated_contact_ids_returns_empty_on_error():
     mock_client = MagicMock()
+    mock_client.crm.deals.associations_api.get_all.side_effect = Exception('API error')
+    assert get_associated_contact_ids(mock_client, '99') == []
 
-    contact1 = MagicMock()
-    contact1.id = '1'
-    contact1.properties = {
-        'firstname': 'Ana', 'lastname': 'Silva', 'email': 'ana@test.com',
-        'phone': '', 'hubspot_owner_id': '10',
-        'createdate': '2026-04-01T00:00:00Z',
-        'notes_last_contacted': None, 'hs_email_last_send_date': None,
-        'hs_email_last_reply_date': None, 'notes_next_activity_date': None,
-        'origem_do_lead': None,
-    }
-    contact2 = MagicMock()
-    contact2.id = '2'
-    contact2.properties = {
-        'firstname': 'Bruno', 'lastname': 'Costa', 'email': 'bruno@test.com',
-        'phone': '', 'hubspot_owner_id': '10',
-        'createdate': '2026-04-01T00:00:00Z',
-        'notes_last_contacted': None, 'hs_email_last_send_date': None,
-        'hs_email_last_reply_date': None, 'notes_next_activity_date': None,
-        'origem_do_lead': None,
-    }
 
-    page1 = MagicMock()
-    page1.results = [contact1]
-    page1.paging = MagicMock(next=MagicMock(after='cursor1'))
-
-    page2 = MagicMock()
-    page2.results = [contact2]
-    page2.paging = None
-
-    mock_client.crm.contacts.basic_api.get_page.side_effect = [page1, page2]
-
-    result = get_all_contacts(mock_client)
-    assert len(result) == 2
-    assert result[0]['contact_id'] == '1'
-    assert result[1]['contact_id'] == '2'
-    assert mock_client.crm.contacts.basic_api.get_page.call_count == 2
+def test_get_contact_returns_empty_on_error():
+    mock_client = MagicMock()
+    mock_client.crm.contacts.basic_api.get_by_id.side_effect = Exception('API error')
+    assert get_contact(mock_client, '99') == {}
 
 
 def test_get_owner_returns_fallback_on_error():
     mock_client = MagicMock()
-    mock_client.crm.owners.owners_api.get_by_id.side_effect = Exception("API error")
-    result = get_owner(mock_client, '99')
-    assert result == {'owner_name': 'Sem responsável', 'owner_email': ''}
+    mock_client.crm.owners.owners_api.get_by_id.side_effect = Exception('API error')
+    assert get_owner(mock_client, '99') == {'owner_name': 'Sem responsável', 'owner_email': ''}
 
 
-def _make_contact_mock(contact_id, origin=None, createdate='2026-04-01T00:00:00Z'):
-    contact = MagicMock()
-    contact.id = contact_id
-    contact.properties = {
-        'firstname': 'Maria', 'lastname': 'Costa', 'email': 'maria@test.com',
-        'phone': '11999999999', 'hubspot_owner_id': '5',
-        'createdate': createdate,
-        'notes_last_contacted': '2026-04-20T09:00:00Z',
-        'hs_email_last_send_date': '2026-04-20T09:00:00Z',
-        'hs_email_last_reply_date': None,
-        'notes_next_activity_date': None,
-        'origem_do_lead': origin,
-    }
-    return contact
-
-
-def test_build_contact_records_output_structure():
+def test_get_all_deals_paginates():
     mock_client = MagicMock()
+
+    deal1 = MagicMock()
+    deal1.id = '10'
+    deal1.properties = {
+        'dealname': 'Deal A', 'dealstage': 'appointmentscheduled',
+        'hubspot_owner_id': '5', 'notes_last_contacted': None,
+        'notes_next_activity_date': None,
+    }
+    page1 = MagicMock()
+    page1.results = [deal1]
+    page1.paging = MagicMock(next=MagicMock(after='cursor1'))
+
+    deal2 = MagicMock()
+    deal2.id = '11'
+    deal2.properties = {
+        'dealname': 'Deal B', 'dealstage': 'closedwon',
+        'hubspot_owner_id': '5', 'notes_last_contacted': None,
+        'notes_next_activity_date': None,
+    }
+    page2 = MagicMock()
+    page2.results = [deal2]
+    page2.paging = None
+
+    mock_client.crm.deals.basic_api.get_page.side_effect = [page1, page2]
+
+    result = get_all_deals(mock_client)
+    assert len(result) == 2
+    assert result[0]['deal_id'] == '10'
+    assert result[1]['deal_id'] == '11'
+    assert mock_client.crm.deals.basic_api.get_page.call_count == 2
+
+
+def test_build_deal_records_output_structure():
+    mock_client = MagicMock()
+
+    deal = MagicMock()
+    deal.id = '42'
+    deal.properties = {
+        'dealname': 'Casa Silva', 'dealstage': 'appointmentscheduled',
+        'hubspot_owner_id': '5',
+        'notes_last_contacted': '2026-04-20T09:00:00Z',
+        'notes_next_activity_date': None,
+    }
     page = MagicMock()
-    page.results = [_make_contact_mock('42')]
+    page.results = [deal]
     page.paging = None
-    mock_client.crm.contacts.basic_api.get_page.return_value = page
+    mock_client.crm.deals.basic_api.get_page.return_value = page
+
+    assoc = MagicMock()
+    assoc.id = '99'
+    assoc_response = MagicMock()
+    assoc_response.results = [assoc]
+    mock_client.crm.deals.associations_api.get_all.return_value = assoc_response
+
+    contact = MagicMock()
+    contact.properties = {
+        'firstname': 'Ana', 'lastname': 'Silva', 'email': 'ana@test.com',
+        'phone': '11999', 'notes_last_contacted': '2026-04-21T08:00:00Z',
+        'hs_email_last_send_date': None, 'hs_email_last_reply_date': None,
+    }
+    mock_client.crm.contacts.basic_api.get_by_id.return_value = contact
 
     owner = MagicMock()
     owner.first_name = 'João'
@@ -154,49 +159,40 @@ def test_build_contact_records_output_structure():
     owner.email = 'joao@empresa.com'
     mock_client.crm.owners.owners_api.get_by_id.return_value = owner
 
-    records = build_contact_records(mock_client, now=NOW)
+    records = build_deal_records(mock_client)
 
     assert len(records) == 1
     r = records[0]
-    assert r['contact_id'] == '42'
-    assert r['name'] == 'Maria Costa'
-    assert r['email'] == 'maria@test.com'
+    assert r['deal_id'] == '42'
+    assert r['deal_name'] == 'Casa Silva'
+    assert r['deal_stage'] == 'appointmentscheduled'
+    assert r['contact_name'] == 'Ana Silva'
+    assert r['contact_email'] == 'ana@test.com'
     assert r['owner_name'] == 'João Vendedor'
-    assert r['hubspot_url'] == 'https://app.hubspot.com/contacts/42'
-    assert 'last_contact_at' in r
-    assert 'next_activity_at' in r
-    assert 'last_direction' in r
+    assert r['hubspot_url'] == 'https://app.hubspot.com/deal/42'
+    assert r['is_open'] is True
+    assert r['last_contact_at'] == datetime(2026, 4, 21, 8, 0, 0, tzinfo=timezone.utc)
 
 
-def test_build_contact_records_excludes_fornecedor():
+def test_build_deal_records_closed_deal_marked_not_open():
     mock_client = MagicMock()
-    page = MagicMock()
-    page.results = [_make_contact_mock('1', origin='Fornecedor')]
-    page.paging = None
-    mock_client.crm.contacts.basic_api.get_page.return_value = page
 
-    records = build_contact_records(mock_client, now=NOW)
-    assert len(records) == 0
-
-
-def test_build_contact_records_excludes_old_contacts():
-    mock_client = MagicMock()
-    contact = MagicMock()
-    contact.id = '99'
-    contact.properties = {
-        'firstname': 'Antigo', 'lastname': 'Lead', 'email': 'antigo@test.com',
-        'phone': '', 'hubspot_owner_id': None,
-        'createdate': '2024-01-01T00:00:00Z',
-        'notes_last_contacted': None,
-        'hs_email_last_send_date': None,
-        'hs_email_last_reply_date': None,
+    deal = MagicMock()
+    deal.id = '55'
+    deal.properties = {
+        'dealname': 'Deal Fechado', 'dealstage': 'closedwon',
+        'hubspot_owner_id': None, 'notes_last_contacted': None,
         'notes_next_activity_date': None,
-        'origem_do_lead': None,
     }
     page = MagicMock()
-    page.results = [contact]
+    page.results = [deal]
     page.paging = None
-    mock_client.crm.contacts.basic_api.get_page.return_value = page
+    mock_client.crm.deals.basic_api.get_page.return_value = page
 
-    records = build_contact_records(mock_client, now=NOW)
-    assert len(records) == 0
+    assoc_response = MagicMock()
+    assoc_response.results = []
+    mock_client.crm.deals.associations_api.get_all.return_value = assoc_response
+
+    records = build_deal_records(mock_client)
+    assert len(records) == 1
+    assert records[0]['is_open'] is False
