@@ -7,7 +7,8 @@ from google.oauth2.service_account import Credentials
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
 SNAPSHOT_HEADERS = [
-    'contact_id', 'name', 'email', 'phone',
+    'deal_id', 'deal_name', 'deal_stage',
+    'contact_name', 'contact_email', 'contact_phone',
     'owner_name', 'owner_email',
     'last_contact_at', 'business_days_without_contact',
     'status', 'urgency_score', 'has_valid_scheduled_activity',
