@@ -42,7 +42,7 @@ def is_open_deal(deal: dict) -> bool:
     return deal.get('dealstage', '') not in CLOSED_STAGES
 
 
-def get_last_contact_at(deal: dict, contacts: list[dict]) -> datetime | None:
+def get_last_contact_at(deal: dict, contacts: list[dict], debug_id: str = '') -> datetime | None:
     candidates = [
         parse_hubspot_timestamp(deal.get('notes_last_contacted')),
         parse_hubspot_timestamp(deal.get('hs_last_activity_date')),
@@ -51,6 +51,8 @@ def get_last_contact_at(deal: dict, contacts: list[dict]) -> datetime | None:
         candidates.append(parse_hubspot_timestamp(c.get('notes_last_contacted')))
         candidates.append(parse_hubspot_timestamp(c.get('hs_last_activity_date')))
     valid = [d for d in candidates if d is not None]
+    if not valid and debug_id:
+        print(f"  [DEBUG] deal {debug_id}: notes_last_contacted(deal)={deal.get('notes_last_contacted')} hs_last_activity_date(deal)={deal.get('hs_last_activity_date')} contacts_raw={[{k: c.get(k) for k in ('notes_last_contacted','hs_last_activity_date')} for c in contacts]}")
     return max(valid) if valid else None
 
 
@@ -154,7 +156,7 @@ def build_deal_records(client: HubSpot) -> list[dict]:
             'contact_phone': primary.get('phone') or '',
             'owner_name': owner.get('owner_name', ''),
             'owner_email': owner.get('owner_email', ''),
-            'last_contact_at': get_last_contact_at(deal, contacts),
+            'last_contact_at': get_last_contact_at(deal, contacts, debug_id=deal_id),
             'next_activity_at': parse_hubspot_timestamp(deal.get('notes_next_activity_date')),
             'last_direction': get_last_direction(contacts),
             'hubspot_url': f'https://app.hubspot.com/deal/{deal_id}',

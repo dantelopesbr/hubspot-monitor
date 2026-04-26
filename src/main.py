@@ -21,6 +21,10 @@ def run() -> None:
 
     open_deals = [r for r in classified if r.get('is_open')]
 
+    for r in open_deals:
+        if r.get('last_contact_at') is None:
+            print(f"  [DEBUG] SEM_STATUS deal: {r['deal_id']} | {r['deal_name']} | last_contact_at=None")
+
     counts: dict[str, int] = {}
     for r in open_deals:
         counts[r['status']] = counts.get(r['status'], 0) + 1
