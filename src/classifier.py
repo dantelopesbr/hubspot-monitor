@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 from .business_hours import business_days_between
 
-ABANDONMENT_THRESHOLD = 2    # business days → CRITICO
-ATTENTION_THRESHOLD = 1      # business days → ATENCAO
+ABANDONMENT_THRESHOLD = 5    # business days → CRITICO (requires no activity)
+ATTENTION_THRESHOLD = 3      # business days → ATENCAO
 ACTIVITY_OVERDUE_THRESHOLD = 1  # business days — activity still considered valid
 
 
@@ -33,7 +33,7 @@ def classify_contact(record: dict, now: datetime | None = None) -> dict:
 
     if valid_activity:
         status, urgency = 'EM_ANDAMENTO', 0
-    elif days is None or days >= ABANDONMENT_THRESHOLD:
+    elif (days is None or days >= ABANDONMENT_THRESHOLD):
         status, urgency = 'CRITICO', 9
     elif days >= ATTENTION_THRESHOLD:
         status, urgency = 'ATENCAO', 4
