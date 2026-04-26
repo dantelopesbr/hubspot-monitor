@@ -98,7 +98,8 @@ def get_associated_contact_ids(client: HubSpot, deal_id: str) -> list[str]:
             to_object_type='contacts',
         )
         return [str(a.id) for a in (response.results or [])]
-    except Exception:
+    except Exception as e:
+        print(f"  [DEBUG] get_associated_contact_ids failed for deal {deal_id}: {e}")
         return []
 
 
