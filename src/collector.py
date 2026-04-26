@@ -6,11 +6,12 @@ from hubspot import HubSpot
 DEAL_PROPERTIES = [
     'dealname', 'dealstage', 'hubspot_owner_id',
     'notes_last_contacted', 'notes_next_activity_date',
+    'hs_last_activity_date',
 ]
 
 CONTACT_PROPERTIES = [
     'firstname', 'lastname', 'email', 'phone',
-    'notes_last_contacted',
+    'notes_last_contacted', 'hs_last_activity_date',
     'hs_email_last_send_date', 'hs_email_last_reply_date',
 ]
 
@@ -35,9 +36,13 @@ def is_open_deal(deal: dict) -> bool:
 
 
 def get_last_contact_at(deal: dict, contacts: list[dict]) -> datetime | None:
-    candidates = [parse_hubspot_timestamp(deal.get('notes_last_contacted'))]
+    candidates = [
+        parse_hubspot_timestamp(deal.get('notes_last_contacted')),
+        parse_hubspot_timestamp(deal.get('hs_last_activity_date')),
+    ]
     for c in contacts:
         candidates.append(parse_hubspot_timestamp(c.get('notes_last_contacted')))
+        candidates.append(parse_hubspot_timestamp(c.get('hs_last_activity_date')))
     valid = [d for d in candidates if d is not None]
     return max(valid) if valid else None
 
