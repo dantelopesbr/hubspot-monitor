@@ -31,9 +31,11 @@ def classify_contact(record: dict, now: datetime | None = None) -> dict:
 
     valid_activity = has_valid_scheduled_activity(next_activity_at, now)
 
-    if valid_activity:
+    if days is None and not valid_activity:
+        status, urgency = 'SEM_STATUS', 0
+    elif valid_activity:
         status, urgency = 'EM_ANDAMENTO', 0
-    elif (days is None or days >= ABANDONMENT_THRESHOLD):
+    elif days >= ABANDONMENT_THRESHOLD:
         status, urgency = 'CRITICO', 9
     elif days >= ATTENTION_THRESHOLD:
         status, urgency = 'ATENCAO', 4

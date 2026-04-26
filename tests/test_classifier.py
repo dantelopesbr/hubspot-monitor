@@ -6,12 +6,12 @@ def dt(year, month, day, hour=9) -> datetime:
     return datetime(year, month, day, hour, tzinfo=timezone.utc)
 
 
-def test_no_last_contact_no_activity_is_critico():
+def test_no_last_contact_no_activity_is_sem_status():
     now = dt(2026, 8, 3, 10)
     record = {'last_contact_at': None, 'next_activity_at': None, 'last_direction': 'OUTBOUND'}
     result = classify_contact(record, now=now)
-    assert result['status'] == 'CRITICO'
-    assert result['urgency_score'] == 9
+    assert result['status'] == 'SEM_STATUS'
+    assert result['urgency_score'] == 0
     assert result['business_days_without_contact'] is None
 
 
