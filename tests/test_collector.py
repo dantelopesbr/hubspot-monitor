@@ -185,7 +185,7 @@ def test_build_deal_records_output_structure():
     assert r['contact_name'] == 'Ana Silva'
     assert r['contact_email'] == 'ana@test.com'
     assert r['owner_name'] == 'João Vendedor'
-    assert r['hubspot_url'] == 'https://app.hubspot.com/deal/42'
+    assert r['hubspot_url'] == 'https://app.hubspot.com/contacts/5529297/record/0-3/42'
     assert r['is_open'] is True
     assert r['last_contact_at'] == datetime(2026, 4, 21, 8, 0, 0, tzinfo=timezone.utc)
 

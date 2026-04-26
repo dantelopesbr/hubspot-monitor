@@ -151,7 +151,7 @@ def build_deal_records(client: HubSpot) -> list[dict]:
             'last_contact_at': get_last_contact_at(deal, contacts),
             'next_activity_at': parse_hubspot_timestamp(deal.get('notes_next_activity_date')),
             'last_direction': get_last_direction(contacts),
-            'hubspot_url': f'https://app.hubspot.com/deal/{deal_id}',
+            'hubspot_url': f'https://app.hubspot.com/contacts/5529297/record/0-3/{deal_id}',
             'is_open': is_open_deal(deal),
         })
 
