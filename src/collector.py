@@ -42,7 +42,7 @@ def is_open_deal(deal: dict) -> bool:
     return deal.get('dealstage', '') not in CLOSED_STAGES
 
 
-def get_last_contact_at(deal: dict, contacts: list[dict], debug_id: str = '') -> datetime | None:
+def get_last_contact_at(deal: dict, contacts: list[dict]) -> datetime | None:
     candidates = [
         parse_hubspot_timestamp(deal.get('notes_last_contacted')),
         parse_hubspot_timestamp(deal.get('hs_last_activity_date')),
@@ -51,8 +51,6 @@ def get_last_contact_at(deal: dict, contacts: list[dict], debug_id: str = '') ->
         candidates.append(parse_hubspot_timestamp(c.get('notes_last_contacted')))
         candidates.append(parse_hubspot_timestamp(c.get('hs_last_activity_date')))
     valid = [d for d in candidates if d is not None]
-    if not valid and debug_id:
-        print(f"  [DEBUG] deal {debug_id}: notes_last_contacted(deal)={deal.get('notes_last_contacted')} hs_last_activity_date(deal)={deal.get('hs_last_activity_date')} contacts_raw={[{k: c.get(k) for k in ('notes_last_contacted','hs_last_activity_date')} for c in contacts]}")
     return max(valid) if valid else None
 
 
@@ -80,27 +78,21 @@ def get_all_deals(client: HubSpot) -> list[dict]:
         response = client.crm.deals.basic_api.get_page(
             limit=100,
             properties=DEAL_PROPERTIES,
+            associations=['contacts'],
             after=after,
             archived=False,
         )
         for deal in response.results:
-            deals.append({'deal_id': deal.id, **deal.properties})
+            contact_ids = []
+            if deal.associations:
+                assoc = deal.associations.get('contacts')
+                if assoc and assoc.results:
+                    contact_ids = [str(a.id) for a in assoc.results]
+            deals.append({'deal_id': deal.id, 'contact_ids': contact_ids, **deal.properties})
         if not response.paging:
             break
         after = response.paging.next.after
     return deals
-
-
-def get_associated_contact_ids(client: HubSpot, deal_id: str) -> list[str]:
-    try:
-        response = client.crm.deals.associations_api.get_all(
-            deal_id=int(deal_id),
-            to_object_type='contacts',
-        )
-        return [str(a.id) for a in (response.results or [])]
-    except Exception as e:
-        print(f"  [DEBUG] get_associated_contact_ids failed for deal {deal_id}: {e}")
-        return []
 
 
 def get_contact(client: HubSpot, contact_id: str) -> dict:
@@ -134,9 +126,8 @@ def build_deal_records(client: HubSpot) -> list[dict]:
     for deal in deals:
         deal_id = deal['deal_id']
 
-        contact_ids = get_associated_contact_ids(client, deal_id)
         contacts = []
-        for cid in contact_ids:
+        for cid in deal.get('contact_ids', []):
             if cid not in contacts_cache:
                 contacts_cache[cid] = get_contact(client, cid)
             contacts.append(contacts_cache[cid])
@@ -157,7 +148,7 @@ def build_deal_records(client: HubSpot) -> list[dict]:
             'contact_phone': primary.get('phone') or '',
             'owner_name': owner.get('owner_name', ''),
             'owner_email': owner.get('owner_email', ''),
-            'last_contact_at': get_last_contact_at(deal, contacts, debug_id=deal_id),
+            'last_contact_at': get_last_contact_at(deal, contacts),
             'next_activity_at': parse_hubspot_timestamp(deal.get('notes_next_activity_date')),
             'last_direction': get_last_direction(contacts),
             'hubspot_url': f'https://app.hubspot.com/deal/{deal_id}',

@@ -3,8 +3,7 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock
 from src.collector import (
     parse_hubspot_timestamp, is_open_deal, get_last_contact_at,
-    get_last_direction, get_all_deals, get_associated_contact_ids,
-    get_contact, get_owner, build_deal_records,
+    get_last_direction, get_all_deals, get_contact, get_owner, build_deal_records,
 )
 
 
@@ -21,6 +20,17 @@ def test_parse_empty_string_returns_none():
     assert parse_hubspot_timestamp('') is None
 
 
+def test_parse_date_only_returns_utc_midnight():
+    result = parse_hubspot_timestamp('2026-04-25')
+    assert result == datetime(2026, 4, 25, 0, 0, 0, tzinfo=timezone.utc)
+
+
+def test_parse_millisecond_timestamp():
+    result = parse_hubspot_timestamp('1745783700000')
+    assert result is not None
+    assert result.tzinfo is not None
+
+
 def test_is_open_deal_open_stage():
     assert is_open_deal({'dealstage': 'appointmentscheduled'}) is True
 
@@ -35,20 +45,27 @@ def test_is_open_deal_closedlost():
 
 def test_get_last_contact_at_uses_most_recent():
     deal = {'notes_last_contacted': '2026-04-10T00:00:00Z'}
-    contacts = [{'notes_last_contacted': '2026-04-20T00:00:00Z'}]
+    contacts = [{'notes_last_contacted': '2026-04-20T00:00:00Z', 'hs_last_activity_date': None}]
     result = get_last_contact_at(deal, contacts)
     assert result == datetime(2026, 4, 20, 0, 0, 0, tzinfo=timezone.utc)
 
 
 def test_get_last_contact_at_falls_back_to_deal():
     deal = {'notes_last_contacted': '2026-04-20T00:00:00Z'}
-    contacts = [{'notes_last_contacted': None}]
+    contacts = [{'notes_last_contacted': None, 'hs_last_activity_date': None}]
     result = get_last_contact_at(deal, contacts)
     assert result == datetime(2026, 4, 20, 0, 0, 0, tzinfo=timezone.utc)
 
 
+def test_get_last_contact_at_uses_hs_last_activity_date():
+    deal = {'notes_last_contacted': None, 'hs_last_activity_date': None}
+    contacts = [{'notes_last_contacted': None, 'hs_last_activity_date': '2026-04-25'}]
+    result = get_last_contact_at(deal, contacts)
+    assert result == datetime(2026, 4, 25, 0, 0, 0, tzinfo=timezone.utc)
+
+
 def test_get_last_contact_at_all_none():
-    assert get_last_contact_at({'notes_last_contacted': None}, []) is None
+    assert get_last_contact_at({'notes_last_contacted': None, 'hs_last_activity_date': None}, []) is None
 
 
 def test_get_last_direction_inbound_when_reply_is_newer():
@@ -71,12 +88,6 @@ def test_get_last_direction_defaults_outbound_no_contacts():
     assert get_last_direction([]) == 'OUTBOUND'
 
 
-def test_get_associated_contact_ids_returns_empty_on_error():
-    mock_client = MagicMock()
-    mock_client.crm.deals.associations_api.get_all.side_effect = Exception('API error')
-    assert get_associated_contact_ids(mock_client, '99') == []
-
-
 def test_get_contact_returns_empty_on_error():
     mock_client = MagicMock()
     mock_client.crm.contacts.basic_api.get_by_id.side_effect = Exception('API error')
@@ -89,27 +100,38 @@ def test_get_owner_returns_fallback_on_error():
     assert get_owner(mock_client, '99') == {'owner_name': 'Sem responsável', 'owner_email': ''}
 
 
+def _make_deal_mock(deal_id, properties, contact_ids=None):
+    deal = MagicMock()
+    deal.id = deal_id
+    deal.properties = properties
+    if contact_ids is not None:
+        assoc_result = MagicMock()
+        assoc_result.id = contact_ids[0] if contact_ids else None
+        contacts_assoc = MagicMock()
+        contacts_assoc.results = [MagicMock(id=cid) for cid in contact_ids]
+        deal.associations = {'contacts': contacts_assoc}
+    else:
+        deal.associations = None
+    return deal
+
+
 def test_get_all_deals_paginates():
     mock_client = MagicMock()
 
-    deal1 = MagicMock()
-    deal1.id = '10'
-    deal1.properties = {
+    deal1 = _make_deal_mock('10', {
         'dealname': 'Deal A', 'dealstage': 'appointmentscheduled',
         'hubspot_owner_id': '5', 'notes_last_contacted': None,
-        'notes_next_activity_date': None,
-    }
+        'notes_next_activity_date': None, 'hs_last_activity_date': None,
+    }, contact_ids=[])
     page1 = MagicMock()
     page1.results = [deal1]
     page1.paging = MagicMock(next=MagicMock(after='cursor1'))
 
-    deal2 = MagicMock()
-    deal2.id = '11'
-    deal2.properties = {
+    deal2 = _make_deal_mock('11', {
         'dealname': 'Deal B', 'dealstage': 'closedwon',
         'hubspot_owner_id': '5', 'notes_last_contacted': None,
-        'notes_next_activity_date': None,
-    }
+        'notes_next_activity_date': None, 'hs_last_activity_date': None,
+    }, contact_ids=[])
     page2 = MagicMock()
     page2.results = [deal2]
     page2.paging = None
@@ -126,29 +148,23 @@ def test_get_all_deals_paginates():
 def test_build_deal_records_output_structure():
     mock_client = MagicMock()
 
-    deal = MagicMock()
-    deal.id = '42'
-    deal.properties = {
+    deal = _make_deal_mock('42', {
         'dealname': 'Casa Silva', 'dealstage': 'appointmentscheduled',
         'hubspot_owner_id': '5',
         'notes_last_contacted': '2026-04-20T09:00:00Z',
         'notes_next_activity_date': None,
-    }
+        'hs_last_activity_date': None,
+    }, contact_ids=['99'])
     page = MagicMock()
     page.results = [deal]
     page.paging = None
     mock_client.crm.deals.basic_api.get_page.return_value = page
 
-    assoc = MagicMock()
-    assoc.id = '99'
-    assoc_response = MagicMock()
-    assoc_response.results = [assoc]
-    mock_client.crm.deals.associations_api.get_all.return_value = assoc_response
-
     contact = MagicMock()
     contact.properties = {
         'firstname': 'Ana', 'lastname': 'Silva', 'email': 'ana@test.com',
         'phone': '11999', 'notes_last_contacted': '2026-04-21T08:00:00Z',
+        'hs_last_activity_date': None,
         'hs_email_last_send_date': None, 'hs_email_last_reply_date': None,
     }
     mock_client.crm.contacts.basic_api.get_by_id.return_value = contact
@@ -177,21 +193,15 @@ def test_build_deal_records_output_structure():
 def test_build_deal_records_closed_deal_marked_not_open():
     mock_client = MagicMock()
 
-    deal = MagicMock()
-    deal.id = '55'
-    deal.properties = {
+    deal = _make_deal_mock('55', {
         'dealname': 'Deal Fechado', 'dealstage': 'closedwon',
         'hubspot_owner_id': None, 'notes_last_contacted': None,
-        'notes_next_activity_date': None,
-    }
+        'notes_next_activity_date': None, 'hs_last_activity_date': None,
+    }, contact_ids=[])
     page = MagicMock()
     page.results = [deal]
     page.paging = None
     mock_client.crm.deals.basic_api.get_page.return_value = page
-
-    assoc_response = MagicMock()
-    assoc_response.results = []
-    mock_client.crm.deals.associations_api.get_all.return_value = assoc_response
 
     records = build_deal_records(mock_client)
     assert len(records) == 1
